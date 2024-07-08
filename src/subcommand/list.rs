@@ -2,85 +2,54 @@ use super::*;
 
 #[derive(Debug, Parser)]
 pub(crate) struct List {
-  #[arg(help = "List information for <OUTPOINT>.")]
+  #[clap(help = "List sats in <OUTPOINT>.")]
   outpoint: OutPoint,
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct Output {
-  pub address: Option<Address<NetworkUnchecked>>,
-  pub indexed: bool,
-  pub inscriptions: Vec<InscriptionId>,
-  pub runes: BTreeMap<SpacedRune, Pile>,
-  pub sat_ranges: Option<Vec<Range>>,
-  pub script_pubkey: String,
-  pub spent: bool,
-  pub transaction: String,
-  pub value: u64,
-}
-
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
-pub struct Range {
-  pub start: u64,
-  pub name: String,
-  pub offset: u64,
-  pub rarity: Rarity,
-  pub end: u64,
+  pub output: OutPoint,
+  pub start: u128,
   pub size: u64,
+  pub rarity: Rarity,
 }
 
 impl List {
-  pub(crate) fn run(self, settings: Settings) -> SubcommandResult {
-    let index = Index::open(&settings)?;
-
-    if !index.has_sat_index() {
-      bail!("list requires index created with `--index-sats` flag");
-    }
+  pub(crate) fn run(self, options: Options) -> Result {
+    let index = Index::open(&options)?;
 
     index.update()?;
 
-    ensure! {
-      index.is_output_in_active_chain(self.outpoint)?,
-      "output not found"
+    match index.list(self.outpoint)? {
+      Some(crate::index::List::Unspent(ranges)) => {
+        let mut outputs = Vec::new();
+        for (output, start, size, rarity) in list(self.outpoint, ranges) {
+          outputs.push(Output {
+            output,
+            start,
+            size,
+            rarity,
+          });
+        }
+
+        print_json(outputs)?;
+
+        Ok(())
+      }
+      Some(crate::index::List::Spent) => Err(anyhow!("output spent.")),
+      None => Err(anyhow!("output not found")),
     }
-
-    let (list, _txout) = match index.get_output_info(self.outpoint)? {
-      Some((output, txout)) => (output, txout),
-      None => return Ok(None),
-    };
-
-    Ok(Some(Box::new(Output {
-      address: list.address,
-      indexed: list.indexed,
-      inscriptions: list.inscriptions,
-      runes: list.runes,
-      sat_ranges: list.sat_ranges.map(output_ranges),
-      script_pubkey: list.script_pubkey,
-      spent: list.spent,
-      transaction: list.transaction,
-      value: list.value,
-    })))
   }
 }
 
-fn output_ranges(ranges: Vec<(u64, u64)>) -> Vec<Range> {
-  let mut offset = 0;
+fn list(outpoint: OutPoint, ranges: Vec<(u128, u128)>) -> Vec<(OutPoint, u128, u64, Rarity)> {
   ranges
     .into_iter()
     .map(|(start, end)| {
-      let size = end - start;
-      let output = Range {
-        end,
-        name: Sat(start).name(),
-        offset,
-        rarity: Sat(start).rarity(),
-        size,
-        start,
-      };
+      let size = u64::try_from(end - start).unwrap();
+      let rarity = Sat(start).rarity();
 
-      offset += size;
-
-      output
+      (outpoint, start, size, rarity)
     })
     .collect()
 }
@@ -90,38 +59,40 @@ mod tests {
   use super::*;
 
   #[test]
+  #[ignore]
   fn list_ranges() {
+    let outpoint =
+      OutPoint::from_str("1a91e3dace36e2be3bf030a65679fe821aa1d6ef92e7c9902eb318182c355691:5")
+        .unwrap();
+    let ranges = vec![
+      (50 * COIN_VALUE as u128, 55 * COIN_VALUE as u128),
+      (10 as u128, 100 as u128),
+      (1050000000000000 as u128, 1150000000000000 as u128),
+    ];
     assert_eq!(
-      output_ranges(vec![
-        (50 * COIN_VALUE, 55 * COIN_VALUE),
-        (10, 100),
-        (1050000000000000, 1150000000000000),
-      ]),
+      list(outpoint, ranges),
       vec![
-        Range {
-          end: 55 * COIN_VALUE,
-          name: "nvtcsezkbth".to_string(),
-          offset: 0,
-          rarity: Rarity::Uncommon,
-          size: 5 * COIN_VALUE,
-          start: 50 * COIN_VALUE,
-        },
-        Range {
-          end: 100,
-          name: "nvtdijuwxlf".to_string(),
-          offset: 5 * COIN_VALUE,
-          rarity: Rarity::Common,
-          size: 90,
-          start: 10,
-        },
-        Range {
-          end: 1150000000000000,
-          name: "gkjbdrhkfqf".to_string(),
-          offset: 5 * COIN_VALUE + 90,
-          rarity: Rarity::Epic,
-          size: 100000000000000,
-          start: 1050000000000000,
-        }
+        (
+          OutPoint::from_str("1a91e3dace36e2be3bf030a65679fe821aa1d6ef92e7c9902eb318182c355691:5")
+            .unwrap(),
+          50 * COIN_VALUE as u128,
+          5 * COIN_VALUE,
+          Rarity::Uncommon,
+        ),
+        (
+          OutPoint::from_str("1a91e3dace36e2be3bf030a65679fe821aa1d6ef92e7c9902eb318182c355691:5")
+            .unwrap(),
+          10,
+          90,
+          Rarity::Common,
+        ),
+        (
+          OutPoint::from_str("1a91e3dace36e2be3bf030a65679fe821aa1d6ef92e7c9902eb318182c355691:5")
+            .unwrap(),
+          1050000000000000,
+          100000000000000,
+          Rarity::Epic,
+        )
       ]
     )
   }

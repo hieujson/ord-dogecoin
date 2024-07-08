@@ -1,47 +1,44 @@
 use super::*;
 
-#[derive(Copy, Clone, Debug, Display, FromStr, Ord, Eq, Serialize, PartialEq, PartialOrd)]
-pub struct Height(pub u32);
+#[derive(Copy, Clone, Debug, Display, FromStr, Ord, Eq, PartialEq, PartialOrd)]
+pub(crate) struct Height(pub(crate) u64);
 
 impl Height {
-  pub fn n(self) -> u32 {
+  pub(crate) fn n(self) -> u64 {
     self.0
   }
 
-  pub fn subsidy(self) -> u64 {
+  pub(crate) fn subsidy(self) -> u64 {
     Epoch::from(self).subsidy()
   }
 
-  pub fn starting_sat(self) -> Sat {
+  pub(crate) fn starting_sat(self) -> Sat {
     let epoch = Epoch::from(self);
     let epoch_starting_sat = epoch.starting_sat();
     let epoch_starting_height = epoch.starting_height();
-    epoch_starting_sat + u64::from(self.n() - epoch_starting_height.n()) * epoch.subsidy()
-  }
-
-  pub fn period_offset(self) -> u32 {
-    self.0 % DIFFCHANGE_INTERVAL
+    epoch_starting_sat
+      + ((self - epoch_starting_height.n()).n() as u128) * (epoch.subsidy() as u128)
   }
 }
 
-impl Add<u32> for Height {
+impl Add<u64> for Height {
   type Output = Self;
 
-  fn add(self, other: u32) -> Height {
+  fn add(self, other: u64) -> Height {
     Self(self.0 + other)
   }
 }
 
-impl Sub<u32> for Height {
+impl Sub<u64> for Height {
   type Output = Self;
 
-  fn sub(self, other: u32) -> Height {
+  fn sub(self, other: u64) -> Height {
     Self(self.0 - other)
   }
 }
 
-impl PartialEq<u32> for Height {
-  fn eq(&self, other: &u32) -> bool {
+impl PartialEq<u64> for Height {
+  fn eq(&self, other: &u64) -> bool {
     self.0 == *other
   }
 }
@@ -82,41 +79,10 @@ mod tests {
 
   #[test]
   fn subsidy() {
-    assert_eq!(Height(0).subsidy(), 5000000000);
-    assert_eq!(Height(1).subsidy(), 5000000000);
-    assert_eq!(Height(SUBSIDY_HALVING_INTERVAL - 1).subsidy(), 5000000000);
-    assert_eq!(Height(SUBSIDY_HALVING_INTERVAL).subsidy(), 2500000000);
-    assert_eq!(Height(SUBSIDY_HALVING_INTERVAL + 1).subsidy(), 2500000000);
-  }
-
-  #[test]
-  fn starting_sat() {
-    assert_eq!(Height(0).starting_sat(), 0);
-    assert_eq!(Height(1).starting_sat(), 5000000000);
-    assert_eq!(
-      Height(SUBSIDY_HALVING_INTERVAL - 1).starting_sat(),
-      (u64::from(SUBSIDY_HALVING_INTERVAL) - 1) * 5000000000
-    );
-    assert_eq!(
-      Height(SUBSIDY_HALVING_INTERVAL).starting_sat(),
-      u64::from(SUBSIDY_HALVING_INTERVAL) * 5000000000
-    );
-    assert_eq!(
-      Height(SUBSIDY_HALVING_INTERVAL + 1).starting_sat(),
-      u64::from(SUBSIDY_HALVING_INTERVAL) * 5000000000 + 2500000000
-    );
-    assert_eq!(
-      Height(u32::MAX).starting_sat(),
-      *Epoch::STARTING_SATS.last().unwrap()
-    );
-  }
-
-  #[test]
-  fn period_offset() {
-    assert_eq!(Height(0).period_offset(), 0);
-    assert_eq!(Height(1).period_offset(), 1);
-    assert_eq!(Height(DIFFCHANGE_INTERVAL - 1).period_offset(), 2015);
-    assert_eq!(Height(DIFFCHANGE_INTERVAL).period_offset(), 0);
-    assert_eq!(Height(DIFFCHANGE_INTERVAL + 1).period_offset(), 1);
+    assert_eq!(Height(0).subsidy(), 1_000_000 * COIN_VALUE);
+    assert_eq!(Height(1).subsidy(), 1_000_000 * COIN_VALUE);
+    assert_eq!(Height(100_000).subsidy(), 500_000 * COIN_VALUE);
+    assert_eq!(Height(199_999).subsidy(), 250_000 * COIN_VALUE);
+    assert_eq!(Height(201_000).subsidy(), 125_000 * COIN_VALUE);
   }
 }

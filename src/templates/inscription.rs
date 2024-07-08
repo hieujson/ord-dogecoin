@@ -22,7 +22,7 @@ pub(crate) struct InscriptionHtml {
 
 impl PageContent for InscriptionHtml {
   fn title(&self) -> String {
-    format!("Inscription {}", self.number)
+    format!("Shibescription {}", self.number)
   }
 }
 
@@ -42,7 +42,7 @@ mod tests {
         ..default()
       },
       "
-        <h1>Inscription 1</h1>
+        <h1>Shibescription 1</h1>
         <div class=inscription>
         <div>❮</div>
         <iframe .* src=/preview/1{64}i1></iframe>
@@ -127,7 +127,7 @@ mod tests {
         ..default()
       },
       "
-        <h1>Inscription 1</h1>
+        <h1>Shibescription 1</h1>
         .*
         <dl>
           .*
@@ -159,11 +159,11 @@ mod tests {
         ..default()
       },
       "
-        <h1>Inscription 1</h1>
+        <h1>Shibescription 1</h1>
         <div class=inscription>
-        <a class=prev href=/inscription/1{64}i1>❮</a>
+        <a class=prev href=/shibescription/1{64}i1>❮</a>
         <iframe .* src=/preview/2{64}i2></iframe>
-        <a class=next href=/inscription/3{64}i3>❯</a>
+        <a class=next href=/shibescription/3{64}i3>❯</a>
         </div>
         .*
       "

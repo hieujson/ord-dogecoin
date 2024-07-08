@@ -1,82 +1,57 @@
 use {
   super::*,
-  axum_server::Handle,
+  crate::command_builder::ToArgs,
   bitcoincore_rpc::{Auth, Client, RpcApi},
-  ord::{parse_ord_server_args, Index},
   reqwest::blocking::Response,
 };
 
 pub(crate) struct TestServer {
-  bitcoin_rpc_url: String,
-  ord_server_handle: Handle,
+  child: Child,
   port: u16,
   #[allow(unused)]
   tempdir: TempDir,
+  rpc_url: String,
 }
 
 impl TestServer {
-  pub(crate) fn spawn(core: &mockcore::Handle) -> Self {
-    Self::spawn_with_server_args(core, &[], &[])
-  }
-
-  pub(crate) fn spawn_with_args(core: &mockcore::Handle, ord_args: &[&str]) -> Self {
-    Self::spawn_with_server_args(core, ord_args, &[])
-  }
-
-  pub(crate) fn spawn_with_server_args(
-    core: &mockcore::Handle,
-    ord_args: &[&str],
-    ord_server_args: &[&str],
-  ) -> Self {
+  pub(crate) fn spawn_with_args(rpc_server: &test_bitcoincore_rpc::Handle, args: &[&str]) -> Self {
     let tempdir = TempDir::new().unwrap();
-
-    let cookiefile = tempdir.path().join("cookie");
-
-    fs::write(&cookiefile, "username:password").unwrap();
-
+    fs::write(tempdir.path().join(".cookie"), "foo:bar").unwrap();
     let port = TcpListener::bind("127.0.0.1:0")
       .unwrap()
       .local_addr()
       .unwrap()
       .port();
 
-    let (settings, server) = parse_ord_server_args(&format!(
-      "ord --bitcoin-rpc-url {} --cookie-file {} --bitcoin-data-dir {} --datadir {} {} server {} --http-port {port} --address 127.0.0.1",
-      core.url(),
-      cookiefile.to_str().unwrap(),
+    let child = Command::new(executable_path("ord")).args(format!(
+      "--rpc-url {} --dogecoin-data-dir {} --data-dir {} {} server --http-port {port} --address 127.0.0.1",
+      rpc_server.url(),
       tempdir.path().display(),
       tempdir.path().display(),
-      ord_args.join(" "),
-      ord_server_args.join(" "),
-    ));
-
-    let index = Arc::new(Index::open(&settings).unwrap());
-    let ord_server_handle = Handle::new();
-
-    {
-      let index = index.clone();
-      let ord_server_handle = ord_server_handle.clone();
-      thread::spawn(|| server.run(settings, index, ord_server_handle).unwrap());
-    }
+      args.join(" "),
+    ).to_args())
+      .env("ORD_INTEGRATION_TEST", "1")
+      .current_dir(&tempdir)
+      .spawn().unwrap();
 
     for i in 0.. {
       match reqwest::blocking::get(format!("http://127.0.0.1:{port}/status")) {
         Ok(_) => break,
         Err(err) => {
           if i == 400 {
-            panic!("ord server failed to start: {err}");
+            panic!("Server failed to start: {err}");
           }
         }
       }
 
-      thread::sleep(Duration::from_millis(50));
+      thread::sleep(Duration::from_millis(25));
     }
 
     Self {
-      bitcoin_rpc_url: core.url(),
-      ord_server_handle,
-      port,
+      child,
       tempdir,
+      port,
+      rpc_url: rpc_server.url(),
     }
   }
 
@@ -84,59 +59,47 @@ impl TestServer {
     format!("http://127.0.0.1:{}", self.port).parse().unwrap()
   }
 
-  #[track_caller]
   pub(crate) fn assert_response_regex(&self, path: impl AsRef<str>, regex: impl AsRef<str>) {
-    self.sync_server();
-    let path = path.as_ref();
-    let response = reqwest::blocking::get(self.url().join(path.as_ref()).unwrap()).unwrap();
-    let status = response.status();
-    assert_eq!(status, StatusCode::OK, "bad status for {path}: {status}");
-    let text = response.text().unwrap();
-    assert_regex_match!(text, regex.as_ref());
-  }
+    let client = Client::new(&self.rpc_url, Auth::None).unwrap();
+    let chain_block_count = client.get_block_count().unwrap() + 1;
 
-  #[track_caller]
-  pub(crate) fn assert_response(&self, path: impl AsRef<str>, expected_response: &str) {
-    self.sync_server();
+    for i in 0.. {
+      let response = reqwest::blocking::get(self.url().join("/block-count").unwrap()).unwrap();
+      assert_eq!(response.status(), StatusCode::OK);
+      if response.text().unwrap().parse::<u64>().unwrap() == chain_block_count {
+        break;
+      } else if i == 20 {
+        panic!("index failed to synchronize with chain");
+      }
+      thread::sleep(Duration::from_millis(25));
+    }
+
     let response = reqwest::blocking::get(self.url().join(path.as_ref()).unwrap()).unwrap();
-    assert_eq!(
-      response.status(),
-      StatusCode::OK,
-      "{}",
-      response.text().unwrap()
-    );
-    pretty_assert_eq!(response.text().unwrap(), expected_response);
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_regex_match!(response.text().unwrap(), regex.as_ref());
   }
 
   pub(crate) fn request(&self, path: impl AsRef<str>) -> Response {
-    self.sync_server();
+    let client = Client::new(&self.rpc_url, Auth::None).unwrap();
+    let chain_block_count = client.get_block_count().unwrap() + 1;
+
+    for i in 0.. {
+      let response = reqwest::blocking::get(self.url().join("/block-count").unwrap()).unwrap();
+      assert_eq!(response.status(), StatusCode::OK);
+      if response.text().unwrap().parse::<u64>().unwrap() == chain_block_count {
+        break;
+      } else if i == 20 {
+        panic!("index failed to synchronize with chain");
+      }
+      thread::sleep(Duration::from_millis(25));
+    }
 
     reqwest::blocking::get(self.url().join(path.as_ref()).unwrap()).unwrap()
-  }
-
-  pub(crate) fn json_request(&self, path: impl AsRef<str>) -> Response {
-    self.sync_server();
-
-    let client = reqwest::blocking::Client::new();
-
-    client
-      .get(self.url().join(path.as_ref()).unwrap())
-      .header(reqwest::header::ACCEPT, "application/json")
-      .send()
-      .unwrap()
-  }
-
-  pub(crate) fn sync_server(&self) {
-    let client = Client::new(&self.bitcoin_rpc_url, Auth::None).unwrap();
-    let chain_block_count = client.get_block_count().unwrap() + 1;
-    let response = reqwest::blocking::get(self.url().join("/update").unwrap()).unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
-    assert!(response.text().unwrap().parse::<u64>().unwrap() >= chain_block_count);
   }
 }
 
 impl Drop for TestServer {
   fn drop(&mut self) {
-    self.ord_server_handle.shutdown();
+    self.child.kill().unwrap()
   }
 }

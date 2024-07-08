@@ -1,18 +1,16 @@
 <h1>Transaction <span class=monospace>{{self.txid}}</span></h1>
-%% if self.inscription_count > 0 {
-<h2>Inscription Geneses</h2>
+%% if let Some(id) = self.inscription {
+<h2>Shibescription Geneses</h2>
 <div class=thumbnails>
-%% for index in 0..self.inscription_count {
-{{ Iframe::thumbnail(InscriptionId { txid: self.txid, index }) }}
-%% }
+{{ Iframe::thumbnail(id) }}
 </div>
 %% }
+%% if let Some(blockhash) = self.blockhash {
 <dl>
-%% if let Some(rune) = self.etching {
-  <dt>etching</dt>
-  <dd><a href=/rune/{{ rune }}>{{ rune }}</a></dd>
-%% }
+  <dt>block</dt>
+  <dd><a href=/block/{{ blockhash }} class=monospace>{{ blockhash }}</a></dd>
 </dl>
+%% }
 <h2>{{"Input".tally(self.transaction.input.len())}}</h2>
 <ul>
 %% for input in &self.transaction.input {
@@ -29,9 +27,9 @@
     </a>
     <dl>
       <dt>value</dt><dd>{{ output.value }}</dd>
-      <dt>script pubkey</dt><dd class=monospace>{{ output.script_pubkey.to_asm_string() }}</dd>
+      <dt>script pubkey</dt><dd class=monospace>{{ output.script_pubkey.asm() }}</dd>
 %% if let Ok(address) = self.chain.address_from_script(&output.script_pubkey) {
-      <dt>address</dt><dd class=monospace><a href=/address/{{address}}>{{ address }}</a></dd>
+      <dt>address</dt><dd class=monospace>{{ address }}</dd>
 %% }
     </dl>
   </li>

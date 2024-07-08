@@ -30,9 +30,9 @@ fn inscriptions_can_be_sent() {
   let send_txid = output.txid;
 
   ord.assert_response_regex(
-    format!("/inscription/{inscription}"),
+    format!("/shibescription/{inscription}"),
     format!(
-      ".*<h1>Inscription 0</h1>.*<dl>.*
+      ".*<h1>Shibescription 0</h1>.*<dl>.*
   <dt>content length</dt>
   <dd>3 bytes</dd>
   <dt>content type</dt>
@@ -93,9 +93,69 @@ fn send_inscribed_inscription() {
   let send_txid = output.txid;
 
   ord.assert_response_regex(
+    format!("/shibescription/{inscription}"),
+    format!(
+      ".*<h1>Shibescription 0</h1>.*<dt>location</dt>.*<dd class=monospace>{send_txid}:0:0</dd>.*",
+    ),
+  );
+}
+
+#[test]
+fn send_uninscribed_sat() {
+  let core = mockcore::spawn();
+
+  let ord = TestServer::spawn_with_server_args(&core, &["--index-sats"], &[]);
+
+  create_wallet(&core, &ord);
+
+  let sat = Sat(1);
+
+  CommandBuilder::new(format!(
+    "wallet send --fee-rate 1 bc1qcqgs2pps4u4yedfyl5pysdjjncs8et5utseepv {}",
+    sat.name(),
+  ))
+  .core(&core)
+  .ord(&ord)
+  .expected_stderr(format!(
+    "error: could not find sat `{sat}` in wallet outputs\n"
+  ))
+  .expected_exit_code(1)
+  .run_and_extract_stdout();
+}
+
+#[test]
+fn send_inscription_by_sat() {
+  let core = mockcore::spawn();
+
+  let ord = TestServer::spawn_with_server_args(&core, &["--index-sats"], &[]);
+
+  create_wallet(&core, &ord);
+
+  core.mine_blocks(1);
+
+  let (inscription, txid) = inscribe(&core, &ord);
+
+  core.mine_blocks(1);
+
+  let sat_list = sats(&core, &ord);
+
+  let sat = sat_list.iter().find(|s| s.output.txid == txid).unwrap().sat;
+
+  let address = "bc1qcqgs2pps4u4yedfyl5pysdjjncs8et5utseepv";
+
+  let output = CommandBuilder::new(format!("wallet send --fee-rate 1 {address} {}", sat.name()))
+    .core(&core)
+    .ord(&ord)
+    .run_and_deserialize_output::<Send>();
+
+  core.mine_blocks(1);
+
+  let send_txid = output.txid;
+
+  ord.assert_response_regex(
     format!("/inscription/{inscription}"),
     format!(
-      ".*<h1>Inscription 0</h1>.*<dt>location</dt>.*<dd class=monospace>{send_txid}:0:0</dd>.*",
+      ".*<h1>Inscription 0</h1>.*<dt>address</dt>.*<dd class=monospace><a href=/address/{address}>{address}</a></dd>.*<dt>location</dt>.*<dd class=monospace>{send_txid}:0:0</dd>.*",
     ),
   );
 }

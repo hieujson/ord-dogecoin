@@ -51,7 +51,7 @@ pub fn builder() -> Builder {
   Builder {
     fail_lock_unspent: false,
     network: Network::Bitcoin,
-    version: 240000,
+    version: 1146000,
   }
 }
 
@@ -230,10 +230,10 @@ impl Handle {
 
   #[track_caller]
   pub fn mine_blocks_with_subsidy(&self, n: u64, subsidy: u64) -> Vec<Block> {
-    let mut bitcoin_rpc_data = self.state();
+    let mut dogecoin_rpc_data = self.state();
     let mut blocks = Vec::new();
     for _ in 0..n {
-      blocks.push(bitcoin_rpc_data.mine_block(subsidy));
+      blocks.push(dogecoin_rpc_data.mine_block(subsidy));
     }
     blocks
   }

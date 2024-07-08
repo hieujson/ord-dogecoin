@@ -1,58 +1,45 @@
-use {
-  super::*,
-  ord::subcommand::list::{Output, Range},
-};
+use {super::*, ord::subcommand::list::Output};
 
 #[test]
 fn output_found() {
-  let core = mockcore::spawn();
+  let rpc_server = test_bitcoincore_rpc::spawn();
   let output = CommandBuilder::new(
-    "--index-sats list 4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b:0",
+    "--index-sats list 5b2a3f53f605d62c53e62932dac6925e3d74afa5a4b459745c36d42d0ed26a69:0",
   )
-  .core(&core)
-  .run_and_deserialize_output::<Output>();
+  .rpc_server(&rpc_server)
+  .output::<Vec<Output>>();
 
   assert_eq!(
     output,
-    Output {
-      address: None,
-      indexed: true,
-      inscriptions: vec![],
-      runes: BTreeMap::new(),
-      sat_ranges: Some(vec![Range {
-        end: 50 * COIN_VALUE,
-        name: "nvtdijuwxlp".into(),
-        offset: 0,
-        rarity: "mythic".parse().unwrap(),
-        size: 50 * COIN_VALUE,
-        start: 0,
-       }]),
-      script_pubkey: "OP_PUSHBYTES_65 04678afdb0fe5548271967f1a67130b7105cd6a828e03909a67962e0ea1f61deb649f6bc3f4cef38c4f35504e51ec112de5c384df7ba0b8d578a4c702b6bf11d5f OP_CHECKSIG".to_string(),
-      spent: false,
-      transaction: "4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b".to_string(),
-      value: 5000000000,
-    }
+    vec![Output {
+      output: "5b2a3f53f605d62c53e62932dac6925e3d74afa5a4b459745c36d42d0ed26a69:0"
+        .parse()
+        .unwrap(),
+      start: 0,
+      size: 8800000000,
+      rarity: "mythic".parse().unwrap(),
+    }]
   );
 }
 
 #[test]
 fn output_not_found() {
-  let core = mockcore::spawn();
+  let rpc_server = test_bitcoincore_rpc::spawn();
   CommandBuilder::new(
     "--index-sats list 0000000000000000000000000000000000000000000000000000000000000000:0",
   )
-  .core(&core)
+  .rpc_server(&rpc_server)
   .expected_exit_code(1)
   .expected_stderr("error: output not found\n")
-  .run_and_extract_stdout();
+  .run();
 }
 
 #[test]
 fn no_satoshi_index() {
-  let core = mockcore::spawn();
-  CommandBuilder::new("list 4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b:0")
-    .core(&core)
+  let rpc_server = test_bitcoincore_rpc::spawn();
+  CommandBuilder::new("list 1a91e3dace36e2be3bf030a65679fe821aa1d6ef92e7c9902eb318182c355691:0")
+    .rpc_server(&rpc_server)
     .expected_stderr("error: list requires index created with `--index-sats` flag\n")
     .expected_exit_code(1)
-    .run_and_extract_stdout();
+    .run();
 }
